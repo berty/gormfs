@@ -107,7 +107,11 @@ func (fs *GormFs) Stat(name string) (fs.FileInfo, error) {
 
 func (fs *GormFs) hasParent(name string) bool {
 	name = filepath.Clean(name)
-	return fs.exists(filepath.Dir(name))
+	parent := filepath.Dir(name)
+	if parent == "." || parent == "/" { // FIXME: breaks on non-unix
+		return true
+	}
+	return fs.db.Where("name = ? AND is_dir = true", parent).Limit(1).Find(&File{}).RowsAffected != 0
 }
 
 func (fs *GormFs) exists(name string) bool {
@@ -115,5 +119,5 @@ func (fs *GormFs) exists(name string) bool {
 	if name == "." || name == "/" { // FIXME: breaks on non-unix
 		return true
 	}
-	return fs.db.Where("name = ?").Limit(1).Find(&File{}).RowsAffected != 0
+	return fs.db.Where("name = ?", name).Limit(1).Find(&File{}).RowsAffected != 0
 }
