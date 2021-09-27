@@ -110,7 +110,11 @@ func (af *aferoFile) Sync() error {
 }
 
 func (af *aferoFile) Stat() (fs.FileInfo, error) {
-	return af, nil
+	f, err := getFile(af.db, af.name)
+	if err != nil {
+		return nil, err
+	}
+	return &FileInfo{f}, nil
 }
 
 func (af *aferoFile) Seek(offset int64, whence int) (int64, error) {
@@ -120,7 +124,11 @@ func (af *aferoFile) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekCurrent:
 		af.head += offset
 	case io.SeekEnd:
-		af.head = af.Size() + offset
+		f, err := af.Stat()
+		if err != nil {
+			return af.head, err
+		}
+		af.head = f.Size() + offset
 	}
 	return af.head, nil
 }

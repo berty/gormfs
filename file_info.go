@@ -6,22 +6,30 @@ import (
 	"time"
 )
 
-var _ fs.FileInfo = (*aferoFile)(nil)
-
-func (af *aferoFile) Mode() os.FileMode {
-	panic("aferoFile.Mode not implemented")
+type FileInfo struct {
+	*File
 }
 
-func (af *aferoFile) ModTime() time.Time {
-	panic("aferoFile.ModeTime not implemented")
+var _ fs.FileInfo = (*FileInfo)(nil)
+
+func (fi *FileInfo) Name() string {
+	return fi.File.Name
 }
 
-func (af *aferoFile) IsDir() bool {
-	panic("aferoFile.IsDir not implemented")
+func (fi *FileInfo) Mode() os.FileMode {
+	return fi.File.Mode
 }
 
-func (af *aferoFile) Sys() interface{} { return nil }
+func (fi *FileInfo) ModTime() time.Time {
+	return fi.File.MTime
+}
 
-func (af *aferoFile) Size() int64 {
-	panic("aferoFile.Size not implemented")
+func (fi *FileInfo) IsDir() bool {
+	return fi.File.IsDir
+}
+
+func (fi *FileInfo) Sys() interface{} { return nil }
+
+func (fi *FileInfo) Size() int64 {
+	return int64(len(fi.File.Data))
 }
