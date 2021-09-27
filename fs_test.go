@@ -13,7 +13,7 @@ import (
 func TestingFs(t *testing.T) *GormFs {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "fs.db")), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("fs.db"), &gorm.Config{})
 	require.NoError(t, err)
 
 	fs, err := NewGormFs(db)
@@ -52,4 +52,21 @@ func TestCreateDeleteDeep(t *testing.T) {
 
 		require.NoError(t, fs.RemoveAll("."))
 	}
+}
+
+func TestRenameDir(t *testing.T) {
+	fs := TestingFs(t)
+
+	dir := filepath.Join("foo", "a", "b", "c")
+	child := filepath.Join(dir, "file")
+
+	require.NoError(t, fs.MkdirAll(dir, os.ModePerm))
+
+	_, err := fs.Create(child)
+	require.NoError(t, err)
+
+	require.NoError(t, fs.Rename("foo", "bar"))
+
+	_, err = fs.Open(filepath.Join("bar", "a", "b", "c", "file"))
+	require.NoError(t, err)
 }

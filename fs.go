@@ -45,7 +45,7 @@ func (fs *GormFs) Create(name string) (afero.File, error) {
 	if err := fs.db.Create(&File{Name: filepath.Clean(name)}).Error; err != nil {
 		return nil, errors.Wrap(err, "create db file")
 	}
-	return fs.Open(name)
+	return fs.OpenFile(name, os.O_RDWR, os.ModePerm)
 }
 
 func (fs *GormFs) Mkdir(name string, perm os.FileMode) error {
@@ -75,11 +75,19 @@ func (fs *GormFs) Name() string {
 }
 
 func (fs *GormFs) Open(name string) (afero.File, error) {
-	return newAferoFile(fs.db, name), nil
+	return newAferoFile(fs.db, name, os.O_RDONLY), nil
 }
 
 func (fs *GormFs) OpenFile(name string, flag int, perm fs.FileMode) (afero.File, error) {
-	panic("gormFs.OpenFile not implemented")
+	if !fs.exists(name) {
+		if flag&os.O_CREATE == 0 {
+			return nil, errors.New("no such file or directory") // FIXME: error parity with os
+		}
+		if err := fs.db.Create(&File{Name: filepath.Clean(name), Mode: perm}).Error; err != nil {
+			return nil, err
+		}
+	}
+	return newAferoFile(fs.db, name, flag), nil
 }
 
 func (fs *GormFs) Remove(name string) error {
@@ -94,15 +102,40 @@ func (fs *GormFs) RemoveAll(path string) error {
 }
 
 func (fs *GormFs) Rename(oldname, newname string) error {
+	oldname = filepath.Clean(oldname)
+	newname = filepath.Clean(newname)
+
 	if !fs.exists(oldname) {
 		return errors.New("no such file or directory") // FIXME: error parity with os
 	}
 
-	panic("GormFs.Rename not fully implemented")
+	oldFiles := []*File{}
+	if err := fs.db.Where("name LIKE ?", filepath.Join(oldname, "%")).Or("name = ?", oldname).Find(&oldFiles).Error; err != nil {
+		return errors.Wrap(err, "find files")
+	}
+
+	newFiles := make([]*File, len(oldFiles))
+	for i := range oldFiles {
+		f := *oldFiles[i]
+		newFiles[i] = &f
+		fnn := strings.TrimPrefix(oldFiles[i].Name, oldname)
+		newFiles[i].Name = newname + fnn
+		fmt.Printf("renamed %s to %s\n", oldFiles[i].Name, newFiles[i].Name)
+	}
+
+	if err := fs.db.Save(newFiles).Error; err != nil {
+		return errors.Wrap(err, "save files")
+	}
+
+	if err := fs.db.Delete(oldFiles).Error; err != nil {
+		return errors.Wrap(err, "delete rename remains")
+	}
+
+	return nil
 }
 
 func (fs *GormFs) Stat(name string) (fs.FileInfo, error) {
-	return newAferoFile(fs.db, name).Stat()
+	return newAferoFile(fs.db, name, os.O_RDONLY).Stat()
 }
 
 func (fs *GormFs) hasParent(name string) bool {

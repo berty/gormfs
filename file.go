@@ -3,6 +3,7 @@ package gormfs
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/afero"
@@ -12,6 +13,7 @@ import (
 type aferoFile struct {
 	db   *gorm.DB
 	name string
+	flag int
 }
 
 var _ afero.File = (*aferoFile)(nil)
@@ -21,14 +23,23 @@ func (af *aferoFile) WriteString(s string) (int, error) {
 }
 
 func (af *aferoFile) WriteAt(p []byte, off int64) (int, error) {
+	if af.isReadOnly() {
+		return 0, errors.New("file handle is read only")
+	}
 	return -1, errors.New("aferoFile.WriteAt not implemented")
 }
 
 func (af *aferoFile) Write(p []byte) (int, error) {
+	if af.isReadOnly() {
+		return 0, errors.New("file handle is read only")
+	}
 	return -1, errors.New("aferoFile.Write not implemented")
 }
 
 func (af *aferoFile) Truncate(size int64) error {
+	if af.isReadOnly() {
+		return errors.New("file handle is read only")
+	}
 	return errors.New("aferoFile.Truncate not implemented")
 }
 
@@ -68,7 +79,11 @@ func (af *aferoFile) Close() error {
 	return nil
 }
 
-func newAferoFile(db *gorm.DB, name string) *aferoFile {
+func newAferoFile(db *gorm.DB, name string, flag int) *aferoFile {
 	name = filepath.Clean(name)
-	return &aferoFile{name: name, db: db}
+	return &aferoFile{name: name, db: db, flag: flag}
+}
+
+func (af *aferoFile) isReadOnly() bool {
+	return af.flag&os.O_RDONLY != 0
 }
