@@ -13,6 +13,8 @@ import (
 	"gorm.io/gorm"
 )
 
+// FIXME: set File.Mode, File.ATime, File.User and File.Group correctly
+
 type GormFs struct {
 	db *gorm.DB
 }
@@ -27,22 +29,42 @@ func NewGormFs(db *gorm.DB) (*GormFs, error) {
 var _ afero.Fs = (*GormFs)(nil)
 
 func (fs *GormFs) Chmod(name string, mode os.FileMode) error {
-	panic("gormFs.Chmod not implemented")
+	f, err := fs.get(name)
+	if err != nil {
+		return err
+	}
+	f.Mode = mode
+	f.MTime = time.Now()
+	return fs.db.Save(f).Error
 }
 
 func (fs *GormFs) Chown(name string, uid, gid int) error {
-	panic("gormFs.Chown not implemented")
+	f, err := fs.get(name)
+	if err != nil {
+		return err
+	}
+	f.User = uid
+	f.Group = gid
+	f.MTime = time.Now()
+	return fs.db.Save(f).Error
 }
 
 func (fs *GormFs) Chtimes(name string, atime time.Time, mtime time.Time) error {
-	panic("gormFs.Chtimes not implemented")
+	f, err := fs.get(name)
+	if err != nil {
+		return err
+	}
+	f.ATime = atime
+	f.MTime = mtime
+	return fs.db.Save(f).Error
 }
 
 func (fs *GormFs) Create(name string) (afero.File, error) {
 	if !fs.hasParent(name) {
 		return nil, fmt.Errorf("parent of %s does not exist", name) // FIXME: error parity with os
 	}
-	if err := fs.db.Create(&File{Name: filepath.Clean(name)}).Error; err != nil {
+	now := time.Now()
+	if err := fs.db.Create(&File{Name: filepath.Clean(name), ATime: now, MTime: now}).Error; err != nil {
 		return nil, errors.Wrap(err, "create db file")
 	}
 	return fs.OpenFile(name, os.O_RDWR, os.ModePerm)
@@ -114,12 +136,15 @@ func (fs *GormFs) Rename(oldname, newname string) error {
 		return errors.Wrap(err, "find files")
 	}
 
+	now := time.Now()
+
 	newFiles := make([]*File, len(oldFiles))
 	for i := range oldFiles {
 		f := *oldFiles[i]
 		newFiles[i] = &f
 		fnn := strings.TrimPrefix(oldFiles[i].Name, oldname)
 		newFiles[i].Name = newname + fnn
+		newFiles[i].MTime = now
 		fmt.Printf("renamed %s to %s\n", oldFiles[i].Name, newFiles[i].Name)
 	}
 
@@ -153,4 +178,12 @@ func (fs *GormFs) exists(name string) bool {
 		return true
 	}
 	return fs.db.Where("name = ?", name).Limit(1).Find(&File{}).RowsAffected != 0
+}
+
+func (fs *GormFs) get(name string) (*File, error) {
+	var f File
+	if err := fs.db.Where("name = ?", name).Limit(1).Find(&f).Error; err != nil {
+		return nil, err
+	}
+	return &f, nil
 }

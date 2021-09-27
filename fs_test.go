@@ -13,7 +13,7 @@ import (
 func TestingFs(t *testing.T) *GormFs {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open("fs.db"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "fs.db")), &gorm.Config{})
 	require.NoError(t, err)
 
 	fs, err := NewGormFs(db)

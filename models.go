@@ -11,6 +11,8 @@ type File struct {
 	ATime time.Time
 	MTime time.Time
 	IsDir bool
+	User  int
+	Group int
 }
 
 var allModels = []interface{}{&File{}}
