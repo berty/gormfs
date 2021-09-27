@@ -14,6 +14,7 @@ import (
 )
 
 // FIXME: set File.Mode, File.ATime, File.User and File.Group correctly
+// FIXME: handle flag correctly
 
 type GormFs struct {
 	db *gorm.DB
@@ -29,7 +30,7 @@ func NewGormFs(db *gorm.DB) (*GormFs, error) {
 var _ afero.Fs = (*GormFs)(nil)
 
 func (fs *GormFs) Chmod(name string, mode os.FileMode) error {
-	f, err := fs.get(name)
+	f, err := getFile(fs.db, name)
 	if err != nil {
 		return err
 	}
@@ -39,7 +40,7 @@ func (fs *GormFs) Chmod(name string, mode os.FileMode) error {
 }
 
 func (fs *GormFs) Chown(name string, uid, gid int) error {
-	f, err := fs.get(name)
+	f, err := getFile(fs.db, name)
 	if err != nil {
 		return err
 	}
@@ -50,7 +51,7 @@ func (fs *GormFs) Chown(name string, uid, gid int) error {
 }
 
 func (fs *GormFs) Chtimes(name string, atime time.Time, mtime time.Time) error {
-	f, err := fs.get(name)
+	f, err := getFile(fs.db, name)
 	if err != nil {
 		return err
 	}
@@ -178,12 +179,4 @@ func (fs *GormFs) exists(name string) bool {
 		return true
 	}
 	return fs.db.Where("name = ?", name).Limit(1).Find(&File{}).RowsAffected != 0
-}
-
-func (fs *GormFs) get(name string) (*File, error) {
-	var f File
-	if err := fs.db.Where("name = ?", name).Limit(1).Find(&f).Error; err != nil {
-		return nil, err
-	}
-	return &f, nil
 }

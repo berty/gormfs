@@ -13,6 +13,7 @@ type File struct {
 	IsDir bool
 	User  int
 	Group int
+	Data  []byte
 }
 
 var allModels = []interface{}{&File{}}

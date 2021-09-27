@@ -2,6 +2,7 @@ package gormfs
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ type aferoFile struct {
 	db   *gorm.DB
 	name string
 	flag int
+	head int64
 }
 
 var _ afero.File = (*aferoFile)(nil)
@@ -52,7 +54,15 @@ func (af *aferoFile) Stat() (fs.FileInfo, error) {
 }
 
 func (af *aferoFile) Seek(offset int64, whence int) (int64, error) {
-	return -1, errors.New("aferoFile.Seek not implemented")
+	switch whence {
+	case io.SeekStart:
+		af.head = offset
+	case io.SeekCurrent:
+		af.head += offset
+	case io.SeekEnd:
+		af.head = af.Size() + offset
+	}
+	return af.head, nil
 }
 
 func (af *aferoFile) Readdirnames(count int) ([]string, error) {
@@ -64,11 +74,31 @@ func (af *aferoFile) Readdir(count int) ([]fs.FileInfo, error) {
 }
 
 func (af *aferoFile) ReadAt(p []byte, off int64) (int, error) {
-	return -1, errors.New("aferoFile.ReadAt not implemented")
+	f, err := getFile(af.db, af.name)
+	if err != nil {
+		return 0, err
+	}
+
+	if off >= int64(len(f.Data)) {
+		return 0, io.EOF
+	}
+
+	return copy(p, f.Data[off:]), nil
 }
 
 func (af *aferoFile) Read(p []byte) (int, error) {
-	return -1, errors.New("aferoFile.Read not implemented")
+	f, err := getFile(af.db, af.name)
+	if err != nil {
+		return 0, err
+	}
+
+	if af.head >= int64(len(f.Data)) {
+		return 0, io.EOF
+	}
+
+	n := copy(p, f.Data[af.head:])
+	af.head += int64(n)
+	return n, nil
 }
 
 func (af *aferoFile) Name() string {
