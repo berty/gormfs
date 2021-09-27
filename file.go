@@ -30,17 +30,61 @@ func (af *aferoFile) WriteAt(p []byte, off int64) (int, error) {
 	if af.isReadOnly() {
 		return 0, errors.New("file handle is read only")
 	}
-	return -1, errors.New("aferoFile.WriteAt not implemented")
+
+	f, err := getFile(af.db, af.name)
+	if err != nil {
+		return 0, err
+	}
+
+	newSize := off + int64(len(p))
+	if int64(len(f.Data)) < newSize {
+		buf := make([]byte, newSize)
+		copy(buf, f.Data)
+		f.Data = buf
+	}
+
+	n := copy(f.Data[off:], p)
+
+	if err := af.db.Save(f).Error; err != nil {
+		return 0, err
+	}
+
+	return n, nil
 }
 
 func (af *aferoFile) Write(p []byte) (int, error) {
 	if af.isReadOnly() {
 		return 0, errors.New("file handle is read only")
 	}
-	return -1, errors.New("aferoFile.Write not implemented")
+
+	f, err := getFile(af.db, af.name)
+	if err != nil {
+		return 0, err
+	}
+
+	newSize := af.head + int64(len(p))
+	if int64(len(f.Data)) < newSize {
+		buf := make([]byte, newSize)
+		copy(buf, f.Data)
+		f.Data = buf
+	}
+
+	n := copy(f.Data[af.head:], p)
+
+	if err := af.db.Save(f).Error; err != nil {
+		return 0, err
+	}
+
+	af.head += int64(n)
+
+	return n, nil
 }
 
 func (af *aferoFile) Truncate(size int64) error {
+	if af.isReadOnly() {
+		return errors.New("file handle is read only")
+	}
+
 	f, err := getFile(af.db, af.name)
 	if err != nil {
 		return err
