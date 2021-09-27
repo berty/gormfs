@@ -146,7 +146,6 @@ func (fs *GormFs) Rename(oldname, newname string) error {
 		fnn := strings.TrimPrefix(oldFiles[i].Name, oldname)
 		newFiles[i].Name = newname + fnn
 		newFiles[i].MTime = now
-		fmt.Printf("renamed %s to %s\n", oldFiles[i].Name, newFiles[i].Name)
 	}
 
 	if err := fs.db.Save(newFiles).Error; err != nil {
