@@ -114,7 +114,7 @@ func (af *aferoFile) Stat() (fs.FileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &FileInfo{f}, nil
+	return &fileInfo{f}, nil
 }
 
 func (af *aferoFile) Seek(offset int64, whence int) (int64, error) {
@@ -134,11 +134,30 @@ func (af *aferoFile) Seek(offset int64, whence int) (int64, error) {
 }
 
 func (af *aferoFile) Readdirnames(count int) ([]string, error) {
-	return nil, errors.New("aferoFile.Readdirnames not implemented")
+	infos, err := af.Readdir(count)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, len(infos))
+	for i, info := range infos {
+		names[i] = info.Name()
+	}
+	return names, nil
 }
 
 func (af *aferoFile) Readdir(count int) ([]fs.FileInfo, error) {
-	return nil, errors.New("aferoFile.Readdir not implemented")
+	files := []*File{}
+	if err := af.db.
+		Where("name LIKE ?", filepath.Join(af.name, "%")).
+		Not("name LIKE ?", filepath.Join(af.name, "%", "%")).Find(&files).
+		Error; err != nil {
+		return nil, err
+	}
+	infos := make([]fs.FileInfo, len(files))
+	for i, f := range files {
+		infos[i] = &fileInfo{f}
+	}
+	return infos, nil
 }
 
 func (af *aferoFile) ReadAt(p []byte, off int64) (int, error) {
