@@ -11,6 +11,8 @@ import (
 	"gorm.io/gorm"
 )
 
+// FIXME: handle O_APPEND flag correctly
+
 type aferoFile struct {
 	db   *gorm.DB
 	name string
@@ -39,10 +41,24 @@ func (af *aferoFile) Write(p []byte) (int, error) {
 }
 
 func (af *aferoFile) Truncate(size int64) error {
-	if af.isReadOnly() {
-		return errors.New("file handle is read only")
+	f, err := getFile(af.db, af.name)
+	if err != nil {
+		return err
 	}
-	return errors.New("aferoFile.Truncate not implemented")
+
+	if int64(len(f.Data)) == size {
+		return nil
+	}
+
+	if int64(len(f.Data)) > size {
+		f.Data = f.Data[:size]
+	} else {
+		buf := make([]byte, size)
+		copy(buf, f.Data)
+		f.Data = buf
+	}
+
+	return af.db.Save(f).Error
 }
 
 func (af *aferoFile) Sync() error {
