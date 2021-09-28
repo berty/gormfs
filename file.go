@@ -166,8 +166,11 @@ func (af *aferoFile) ReadAt(p []byte, off int64) (int, error) {
 		return 0, err
 	}
 
-	if off >= int64(len(f.Data)) {
+	if off == int64(len(f.Data)) {
 		return 0, io.EOF
+	}
+	if off > int64(len(f.Data)) {
+		return 0, io.ErrUnexpectedEOF
 	}
 
 	return copy(p, f.Data[off:]), nil
@@ -179,8 +182,11 @@ func (af *aferoFile) Read(p []byte) (int, error) {
 		return 0, err
 	}
 
-	if af.head >= int64(len(f.Data)) {
+	if af.head == int64(len(f.Data)) {
 		return 0, io.EOF
+	}
+	if af.head > int64(len(f.Data)) {
+		return 0, io.ErrUnexpectedEOF
 	}
 
 	n := copy(p, f.Data[af.head:])

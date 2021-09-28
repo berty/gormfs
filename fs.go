@@ -29,111 +29,135 @@ func NewGormFs(db *gorm.DB) (*GormFs, error) {
 
 var _ afero.Fs = (*GormFs)(nil)
 
-func (fs *GormFs) Chmod(name string, mode os.FileMode) error {
-	f, err := getFile(fs.db, name)
+func (f *GormFs) Chmod(name string, mode fs.FileMode) error {
+	file, err := getFile(f.db, name)
 	if err != nil {
 		return err
 	}
-	f.Mode = mode
-	f.MTime = time.Now()
-	return fs.db.Save(f).Error
+	isDir := file.Mode&fs.ModeDir != 0
+	file.Mode = mode
+	if isDir {
+		file.Mode |= fs.ModeDir
+	}
+	file.MTime = time.Now()
+	return f.db.Save(file).Error
 }
 
-func (fs *GormFs) Chown(name string, uid, gid int) error {
-	f, err := getFile(fs.db, name)
+func (f *GormFs) Chown(name string, uid, gid int) error {
+	file, err := getFile(f.db, name)
 	if err != nil {
 		return err
 	}
-	f.User = uid
-	f.Group = gid
-	f.MTime = time.Now()
-	return fs.db.Save(f).Error
+	file.User = uid
+	file.Group = gid
+	file.MTime = time.Now()
+	return f.db.Save(file).Error
 }
 
-func (fs *GormFs) Chtimes(name string, atime time.Time, mtime time.Time) error {
-	f, err := getFile(fs.db, name)
+func (f *GormFs) Chtimes(name string, atime time.Time, mtime time.Time) error {
+	file, err := getFile(f.db, name)
 	if err != nil {
 		return err
 	}
-	f.ATime = atime
-	f.MTime = mtime
-	return fs.db.Save(f).Error
+	file.ATime = atime
+	file.MTime = mtime
+	return f.db.Save(file).Error
 }
 
-func (fs *GormFs) Create(name string) (afero.File, error) {
-	if !fs.hasParent(name) {
+func (f *GormFs) Create(name string) (afero.File, error) {
+	if !f.hasParent(name) {
 		return nil, fmt.Errorf("parent of %s does not exist", name) // FIXME: error parity with os
 	}
 	now := time.Now()
-	if err := fs.db.Create(&File{Name: filepath.Clean(name), ATime: now, MTime: now}).Error; err != nil {
+	if err := f.db.Create(&File{Name: filepath.Clean(name), ATime: now, MTime: now}).Error; err != nil {
 		return nil, errors.Wrap(err, "create db file")
 	}
-	return fs.OpenFile(name, os.O_RDWR, os.ModePerm)
+	return f.OpenFile(name, os.O_RDWR, os.ModePerm)
 }
 
-func (fs *GormFs) Mkdir(name string, perm os.FileMode) error {
-	if !fs.hasParent(name) {
-		return fmt.Errorf("parent of %s does not exist", name) // FIXME: error parity with os
+func (f *GormFs) Mkdir(name string, perm fs.FileMode) error {
+	//fmt.Println("creating", name)
+	if !f.hasParent(name) {
+		return &fs.PathError{Op: "mkdir", Path: name, Err: fs.ErrNotExist} // FIXME: error parity with os
 	}
-	if err := fs.db.Create(&File{Name: filepath.Clean(name), IsDir: true, Mode: perm}).Error; err != nil {
+	if err := f.db.Create(&File{Name: filepath.Clean(name), IsDir: true, Mode: perm | fs.ModeDir}).Error; err != nil {
 		return err
 	}
 	return nil
 }
 
-func (fs *GormFs) MkdirAll(path string, perm os.FileMode) error {
+func (f *GormFs) MkdirAll(path string, perm fs.FileMode) error {
 	path = filepath.Clean(path)
 	paths := strings.Split(path, "/") // FIXME: breaks on non-unix
+	if len(paths) > 0 && paths[0] == "" {
+		paths[0] = "/"
+	}
 	for i, elem := range paths {
 		name := filepath.Join(append(paths[:i], elem)...)
-		if err := fs.Mkdir(name, perm); err != nil {
+		if f.exists(name) {
+			continue
+		}
+		if err := f.Mkdir(name, perm); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (fs *GormFs) Name() string {
+func (f *GormFs) Name() string {
 	return "GormFs"
 }
 
-func (fs *GormFs) Open(name string) (afero.File, error) {
-	return newAferoFile(fs.db, name, os.O_RDONLY), nil
+func (f *GormFs) Open(name string) (afero.File, error) {
+	name = filepath.Clean(name)
+	if !f.exists(name) {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
+	}
+	return newAferoFile(f.db, name, os.O_RDONLY), nil
 }
 
-func (fs *GormFs) OpenFile(name string, flag int, perm fs.FileMode) (afero.File, error) {
-	if !fs.exists(name) {
-		if flag&os.O_CREATE == 0 {
-			return nil, errors.New("no such file or directory") // FIXME: error parity with os
+func (f *GormFs) OpenFile(name string, flag int, perm fs.FileMode) (afero.File, error) {
+	name = filepath.Clean(name)
+	if f.exists(name) {
+		if flag&os.O_CREATE != 0 && flag&os.O_EXCL != 0 {
+			return nil, &fs.PathError{Op: "openf", Path: name, Err: fs.ErrExist}
 		}
-		if err := fs.db.Create(&File{Name: filepath.Clean(name), Mode: perm}).Error; err != nil {
+	} else {
+		if flag&os.O_CREATE == 0 {
+			return nil, &fs.PathError{Op: "openf", Path: name, Err: fs.ErrNotExist}
+		}
+		if err := f.db.Create(&File{Name: filepath.Clean(name), Mode: perm}).Error; err != nil {
 			return nil, err
 		}
 	}
-	return newAferoFile(fs.db, name, flag), nil
+	return newAferoFile(f.db, name, flag), nil
 }
 
-func (fs *GormFs) Remove(name string) error {
-	return fs.db.Delete(&File{Name: filepath.Clean(name)}).Error
+func (f *GormFs) Remove(name string) error {
+	name = filepath.Clean(name)
+	if !f.exists(name) {
+		return &fs.PathError{Op: "remove", Path: name, Err: fs.ErrNotExist}
+	}
+	return f.db.Delete(&File{Name: name}).Error
 }
 
-func (fs *GormFs) RemoveAll(path string) error {
+func (f *GormFs) RemoveAll(path string) error {
 	path = filepath.Clean(path)
-	return fs.db.
+	return f.db.
 		Where("name LIKE ?", filepath.Join(path, "%")).Or("name = ? AND is_dir = true", path). // FIXME: support paths with %
 		Delete(&File{}).Error
 }
 
-func (fs *GormFs) Rename(oldname, newname string) error {
+func (f *GormFs) Rename(oldname, newname string) error {
 	oldname = filepath.Clean(oldname)
 	newname = filepath.Clean(newname)
 
-	if !fs.exists(oldname) {
-		return errors.New("no such file or directory") // FIXME: error parity with os
+	if !f.exists(oldname) {
+		return &fs.PathError{Op: "rename", Path: oldname, Err: fs.ErrNotExist} // FIXME: error parity with os
 	}
 
 	oldFiles := []*File{}
-	if err := fs.db.Where("name LIKE ?", filepath.Join(oldname, "%")).Or("name = ?", oldname).Find(&oldFiles).Error; err != nil {
+	if err := f.db.Where("name LIKE ?", filepath.Join(oldname, "%")).Or("name = ?", oldname).Find(&oldFiles).Error; err != nil {
 		return errors.Wrap(err, "find files")
 	}
 
@@ -148,34 +172,34 @@ func (fs *GormFs) Rename(oldname, newname string) error {
 		newFiles[i].MTime = now
 	}
 
-	if err := fs.db.Save(newFiles).Error; err != nil {
+	if err := f.db.Save(newFiles).Error; err != nil {
 		return errors.Wrap(err, "save files")
 	}
 
-	if err := fs.db.Delete(oldFiles).Error; err != nil {
+	if err := f.db.Delete(oldFiles).Error; err != nil {
 		return errors.Wrap(err, "delete rename remains")
 	}
 
 	return nil
 }
 
-func (fs *GormFs) Stat(name string) (fs.FileInfo, error) {
-	return newAferoFile(fs.db, name, os.O_RDONLY).Stat()
+func (f *GormFs) Stat(name string) (fs.FileInfo, error) {
+	return newAferoFile(f.db, name, os.O_RDONLY).Stat()
 }
 
-func (fs *GormFs) hasParent(name string) bool {
+func (f *GormFs) hasParent(name string) bool {
 	name = filepath.Clean(name)
 	parent := filepath.Dir(name)
 	if parent == "." || parent == "/" { // FIXME: breaks on non-unix
 		return true
 	}
-	return fs.db.Where("name = ? AND is_dir = true", parent).Limit(1).Find(&File{}).RowsAffected != 0
+	return f.db.Where("name = ? AND is_dir = true", parent).Limit(1).Find(&File{}).RowsAffected != 0
 }
 
-func (fs *GormFs) exists(name string) bool {
+func (f *GormFs) exists(name string) bool {
 	name = filepath.Clean(name)
 	if name == "." || name == "/" { // FIXME: breaks on non-unix
 		return true
 	}
-	return fs.db.Where("name = ?", name).Limit(1).Find(&File{}).RowsAffected != 0
+	return f.db.Where("name = ?", name).Limit(1).Find(&File{}).RowsAffected != 0
 }
