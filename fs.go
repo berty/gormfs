@@ -76,9 +76,11 @@ func (f *GormFs) Create(name string) (afero.File, error) {
 }
 
 func (f *GormFs) Mkdir(name string, perm fs.FileMode) error {
-	//fmt.Println("creating", name)
+	if f.exists(name) {
+		return &fs.PathError{Op: "mkdir", Path: name, Err: fs.ErrExist}
+	}
 	if !f.hasParent(name) {
-		return &fs.PathError{Op: "mkdir", Path: name, Err: fs.ErrNotExist} // FIXME: error parity with os
+		return &fs.PathError{Op: "mkdir", Path: name, Err: fs.ErrNotExist}
 	}
 	if err := f.db.Create(&File{Name: filepath.Clean(name), IsDir: true, Mode: perm | fs.ModeDir}).Error; err != nil {
 		return err
@@ -97,7 +99,7 @@ func (f *GormFs) MkdirAll(path string, perm fs.FileMode) error {
 		if f.exists(name) {
 			continue
 		}
-		if err := f.Mkdir(name, perm); err != nil {
+		if err := f.Mkdir(name, perm); err != nil && !os.IsExist(err) {
 			return err
 		}
 	}
