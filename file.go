@@ -202,9 +202,17 @@ func (af *aferoFile) Close() error {
 	return nil
 }
 
-func newAferoFile(db *gorm.DB, name string, flag int) *aferoFile {
+func newAferoFile(db *gorm.DB, name string, flag int) (*aferoFile, error) {
 	name = filepath.Clean(name)
-	return &aferoFile{name: name, db: db, flag: flag}
+	file := &aferoFile{name: name, db: db, flag: flag}
+	if flag&os.O_APPEND != 0 {
+		s, err := file.Stat()
+		if err != nil {
+			return nil, err
+		}
+		file.head = s.Size()
+	}
+	return file, nil
 }
 
 func (af *aferoFile) isReadOnly() bool {

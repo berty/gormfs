@@ -1,7 +1,6 @@
 package gormfs
 
 import (
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -66,7 +65,7 @@ func (f *GormFs) Chtimes(name string, atime time.Time, mtime time.Time) error {
 
 func (f *GormFs) Create(name string) (afero.File, error) {
 	if !f.hasParent(name) {
-		return nil, fmt.Errorf("parent of %s does not exist", name) // FIXME: error parity with os
+		return nil, &fs.PathError{Op: "mkdir", Path: name, Err: fs.ErrNotExist}
 	}
 	now := time.Now()
 	if err := f.db.Create(&File{Name: filepath.Clean(name), ATime: now, MTime: now}).Error; err != nil {
@@ -76,13 +75,14 @@ func (f *GormFs) Create(name string) (afero.File, error) {
 }
 
 func (f *GormFs) Mkdir(name string, perm fs.FileMode) error {
+	name = filepath.Clean(name)
 	if f.exists(name) {
 		return &fs.PathError{Op: "mkdir", Path: name, Err: fs.ErrExist}
 	}
 	if !f.hasParent(name) {
 		return &fs.PathError{Op: "mkdir", Path: name, Err: fs.ErrNotExist}
 	}
-	if err := f.db.Create(&File{Name: filepath.Clean(name), IsDir: true, Mode: perm | fs.ModeDir}).Error; err != nil {
+	if err := f.db.Create(&File{Name: name, IsDir: true, Mode: perm | fs.ModeDir}).Error; err != nil {
 		return err
 	}
 	return nil
@@ -111,11 +111,7 @@ func (f *GormFs) Name() string {
 }
 
 func (f *GormFs) Open(name string) (afero.File, error) {
-	name = filepath.Clean(name)
-	if !f.exists(name) {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
-	}
-	return newAferoFile(f.db, name, os.O_RDONLY), nil
+	return f.OpenFile(name, os.O_RDONLY, 0)
 }
 
 func (f *GormFs) OpenFile(name string, flag int, perm fs.FileMode) (afero.File, error) {
@@ -132,7 +128,7 @@ func (f *GormFs) OpenFile(name string, flag int, perm fs.FileMode) (afero.File, 
 			return nil, err
 		}
 	}
-	return newAferoFile(f.db, name, flag), nil
+	return newAferoFile(f.db, name, flag)
 }
 
 func (f *GormFs) Remove(name string) error {
@@ -186,7 +182,12 @@ func (f *GormFs) Rename(oldname, newname string) error {
 }
 
 func (f *GormFs) Stat(name string) (fs.FileInfo, error) {
-	return newAferoFile(f.db, name, os.O_RDONLY).Stat()
+	file, err := newAferoFile(f.db, name, os.O_RDONLY)
+	if err != nil {
+		return nil, err
+	}
+
+	return file.Stat()
 }
 
 func (f *GormFs) hasParent(name string) bool {
